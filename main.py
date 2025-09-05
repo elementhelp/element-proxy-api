@@ -1,60 +1,68 @@
 import os
-import requests
 from flask import Flask, request, jsonify
 from supabase import create_client, Client
 
-# 🔑 Variabile de mediu (setate pe Railway)
+# ==============================
+# 🔧 Configurare Supabase
+# ==============================
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 
-# 📦 Conectare Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# 🚀 Flask API
+# ==============================
+# 🚀 Flask App
+# ==============================
 app = Flask(__name__)
 
+# ==============================
+# 🟢 Health Check
+# ==============================
 @app.route("/")
 def home():
-    return "✅ Element API is running on Railway!"
+    return jsonify({"status": "running"}), 200
 
-@app.route("/report", methods=["POST"])
-def report():
-    """
-    Endpoint apelat de scriptul din Roblox
-    Trimite: { "user_id": "...", "username": "...", "job_id": "..." }
-    """
+# ==============================
+# 📌 Report Job (folosit de element.lua)
+# ==============================
+@app.route("/report_job", methods=["POST"])
+def report_job():
     data = request.json
-    user_id = data.get("user_id")
-    username = data.get("username")
-    job_id = data.get("job_id")
+    if not data or "id" not in data:
+        return jsonify({"error": "Missing id"}), 400
 
-    if not user_id or not username or not job_id:
-        return jsonify({"error": "Missing fields"}), 400
+    try:
+        supabase.table("elements").update({
+            "job_id": data.get("job_id"),
+            "place_id": data.get("place_id"),
+            "custom_username": data.get("username")
+        }).eq("id", data["id"]).execute()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-    # 📦 Salvăm în Supabase
-    supabase.table("reports").insert({
-        "user_id": user_id,
-        "username": username,
-        "job_id": job_id
-    }).execute()
+    return jsonify({"status": "ok"})
 
-    # 🔔 Trimitem și pe webhook
-    if DISCORD_WEBHOOK:
-        requests.post(DISCORD_WEBHOOK, json={
-            "embeds": [{
-                "title": "📡 Element Report",
-                "fields": [
-                    {"name": "User ID", "value": user_id, "inline": True},
-                    {"name": "Username", "value": username, "inline": True},
-                    {"name": "Job ID", "value": job_id, "inline": False}
-                ],
-                "color": 0x2ecc71
-            }]
-        })
+# ==============================
+# 📌 Get Job (folosit de autojoiner.lua)
+# ==============================
+@app.route("/get_job", methods=["GET"])
+def get_job():
+    element_id = request.args.get("id")
+    if not element_id:
+        return jsonify({"error": "Missing id"}), 400
 
-    return jsonify({"status": "success", "message": "Report saved"}), 200
+    try:
+        result = supabase.table("elements").select("job_id, place_id").eq("id", element_id).execute()
+        if not result.data or len(result.data) == 0:
+            return jsonify({"error": "No job found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
+    return jsonify(result.data[0])
+
+# ==============================
+# ▶️ Run App
+# ==============================
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
