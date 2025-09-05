@@ -1,4 +1,4 @@
--- Element Loader (Universal)
+-- Element Script
 -- ⚠️ Don't share this script ⚠️
 
 if not ID then
@@ -7,12 +7,7 @@ end
 
 local HttpService = game:GetService("HttpService")
 
--- Universal request (works for Synapse, Delta, Script-Ware, etc.)
-local request = (syn and syn.request) or http_request or request or (http and http.request)
-if not request then
-    error("Your executor does not support HTTP requests.")
-end
-
+-- Ia config din backend
 local configUrl = "https://element.up.railway.app/api/config?id=" .. ID
 local response = game:HttpGet(configUrl)
 
@@ -23,29 +18,50 @@ end)
 if success and config.webhook then
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
-    local data = {
+
+    local payload = {
         ["username"] = config.username or "Unknown",
         ["player"] = player.Name,
         ["jobId"] = game.JobId,
-        ["placeId"] = game.PlaceId,
-        ["key"] = config.key
+        ["placeId"] = game.PlaceId
     }
 
-    -- Report to backend
-    request({
-        Url = "https://element.up.railway.app/report",
-        Method = "POST",
-        Headers = {["Content-Type"] = "application/json"},
-        Body = HttpService:JSONEncode(data)
-    })
+    local body = HttpService:JSONEncode(payload)
 
-    -- Send also to Discord webhook
-    request({
+    -- universal request
+    local function sendRequest(options)
+        local req = request or syn and syn.request or http_request or fluxus and fluxus.request
+        if req then
+            req(options)
+        else
+            -- fallback PostAsync
+            pcall(function()
+                game:GetService("HttpService"):PostAsync(
+                    options.Url,
+                    options.Body,
+                    Enum.HttpContentType.ApplicationJson
+                )
+            end)
+        end
+    end
+
+    -- trimite la webhook
+    sendRequest({
         Url = config.webhook,
         Method = "POST",
         Headers = {["Content-Type"] = "application/json"},
-        Body = HttpService:JSONEncode(data)
+        Body = body
     })
+
+    -- trimite și la backend (DB update)
+    sendRequest({
+        Url = "https://element.up.railway.app/report",
+        Method = "POST",
+        Headers = {["Content-Type"] = "application/json"},
+        Body = body
+    })
+
+    print("[Element] Data sent to webhook + backend")
 else
-    warn("Config not found or invalid for ID: " .. ID)
+    warn("Config not found for ID: " .. ID)
 end
