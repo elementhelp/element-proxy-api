@@ -1,53 +1,52 @@
 from flask import Flask, request, jsonify
 import os
 import requests
+from supabase import create_client, Client
 
 app = Flask(__name__)
 
-# Exemplu: Supabase sau DB-ul tău
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# Aici doar simulăm partea de salvare și citire job_id
-DATABASE = {}  # (înlocuiești cu supabase ulterior)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 @app.route("/report", methods=["POST"])
 def report():
     data = request.json
+    username = data.get("username")
     user_id = data.get("user_id")
     job_id = data.get("job_id")
-    webhook = data.get("webhook")
 
-    if not user_id or not job_id:
+    if not username or not user_id or not job_id:
         return jsonify({"error": "Missing fields"}), 400
 
-    # Salvăm job_id în DB fake
-    DATABASE[user_id] = job_id
+    # 🔹 Scriem în baza de date
+    supabase.table("reports").insert({
+        "username": username,
+        "user_id": user_id,
+        "job_id": job_id
+    }).execute()
 
-    # Trimitem pe webhook
-    if webhook:
-        try:
-            requests.post(webhook, json={
-                "content": f"👤 User `{user_id}` este într-un server.\n🆔 Job ID: `{job_id}`"
-            })
-        except Exception as e:
-            print("Webhook error:", e)
+    # 🔹 Trimitem pe webhook
+    payload = {
+        "embeds": [
+            {
+                "title": "📡 New Report",
+                "color": 3447003,
+                "fields": [
+                    {"name": "Username", "value": username, "inline": True},
+                    {"name": "User ID", "value": str(user_id), "inline": True},
+                    {"name": "Job ID", "value": job_id, "inline": False},
+                ]
+            }
+        ]
+    }
+    requests.post(WEBHOOK_URL, json=payload)
 
-    return jsonify({"status": "ok", "job_id": job_id})
-
-
-@app.route("/get-job/<user_id>", methods=["GET"])
-def get_job(user_id):
-    job_id = DATABASE.get(user_id)
-    if not job_id:
-        return jsonify({"error": "Job not found"}), 404
-
-    return jsonify({"job_id": job_id})
+    return jsonify({"status": "ok"}), 200
 
 
 @app.route("/")
 def home():
-    return "✅ Element Proxy API is running!"
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    return "Proxy is running!"
