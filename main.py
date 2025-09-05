@@ -2,67 +2,103 @@ import os
 from flask import Flask, request, jsonify
 from supabase import create_client, Client
 
-# Config Supabase
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
+# ---------------------------
+# CONFIG
+# ---------------------------
 app = Flask(__name__)
 
-# ✅ Endpoint pentru raportare din scriptul Element
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise RuntimeError("❌ Missing SUPABASE_URL or SUPABASE_KEY in environment variables")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+# ---------------------------
+# /report → called by Element Script (Roblox)
+# ---------------------------
 @app.route("/report", methods=["POST"])
 def report():
-    try:
-        data = request.json
-        user_id = data.get("user_id")
-        job_id = data.get("job_id")
-        place_id = data.get("place_id")
-        webhook = data.get("webhook")
-        username = data.get("username")
+    data = request.get_json()
 
-        if not (user_id and job_id and place_id):
-            return jsonify({"error": "Missing required fields"}), 400
+    element_id = data.get("id")
+    key = data.get("key")
+    job_id = data.get("job_id")
+    place_id = data.get("place_id")
 
-        # Inserăm raportul în tabel
-        result = supabase.table("elements").insert({
-            "user_id": user_id,
-            "job_id": job_id,
-            "place_id": place_id,
-            "webhook": webhook,
-            "username": username
-        }).execute()
+    if not element_id or not key or not job_id or not place_id:
+        return jsonify({"error": "Missing fields"}), 400
 
-        return jsonify({"success": True, "inserted": result.data})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    # Verify element_id exists
+    existing = supabase.table("elements").select("id, key").eq("id", element_id).execute()
+    if not existing.data:
+        return jsonify({"error": "Invalid ID"}), 404
+
+    element = existing.data[0]
+
+    # Check KEY
+    if element["key"] != key:
+        return jsonify({"error": "Invalid KEY"}), 403
+
+    # Update job info
+    supabase.table("elements").update({
+        "last_job_id": job_id,
+        "last_place_id": place_id
+    }).eq("id", element_id).execute()
+
+    return jsonify({"status": "ok", "message": "Job reported"}), 200
 
 
-# ✅ Endpoint pentru Autojoiner
-@app.route("/get_job", methods=["GET"])
+# ---------------------------
+# /get_job → called by Autojoiner Script (Roblox)
+# ---------------------------
+@app.route("/get_job", methods=["POST"])
 def get_job():
-    try:
-        user_id = request.args.get("user_id")
+    data = request.get_json()
 
-        query = supabase.table("elements").select("job_id, place_id").order("created_at", desc=True).limit(1)
+    element_id = data.get("id")
+    key = data.get("key")
 
-        # Dacă Autojoiner-ul cere pentru un user anume
-        if user_id:
-            query = query.eq("user_id", user_id)
+    if not element_id or not key:
+        return jsonify({"error": "Missing fields"}), 400
 
-        result = query.execute()
+    # Verify element_id exists
+    existing = supabase.table("elements").select(
+        "id, key, last_job_id, last_place_id"
+    ).eq("id", element_id).execute()
 
-        if not result.data:
-            return jsonify({"error": "No job found"}), 404
+    if not existing.data:
+        return jsonify({"error": "Invalid ID"}), 404
 
-        return jsonify(result.data[0])
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    element = existing.data[0]
+
+    # Check KEY
+    if element["key"] != key:
+        return jsonify({"error": "Invalid KEY"}), 403
+
+    # Check if job exists
+    if not element.get("last_job_id"):
+        return jsonify({"error": "No job reported yet"}), 404
+
+    return jsonify({
+        "job_id": element["last_job_id"],
+        "place_id": element["last_place_id"]
+    }), 200
 
 
-@app.route("/")
+# ---------------------------
+# Health check (optional)
+# ---------------------------
+@app.route("/", methods=["GET"])
 def home():
-    return "✅ API activ pentru Element & Autojoiner!"
+    return jsonify({"status": "running"}), 200
 
 
+# ---------------------------
+# MAIN
+# ---------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
