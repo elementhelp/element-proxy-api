@@ -1,2 +1,4 @@
 flask
+supabase==2.3.4
 requests
+python-dotenv
