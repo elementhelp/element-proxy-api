@@ -33,7 +33,6 @@ local success, config = pcall(function()
 end)
 
 if success and config.webhook then
-    -- Send player info to webhook + backend
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
     local data = {
@@ -155,5 +154,10 @@ def report():
 # ---------------------------
 # Run
 # ---------------------------
+@app.route("/")
+def home():
+    return "✅ Element Proxy running on Railway!"
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3910)
+    app.run(host="0.0.0.0", port=8080)
