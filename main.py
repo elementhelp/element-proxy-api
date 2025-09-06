@@ -1,62 +1,90 @@
 from flask import Flask, request, jsonify
-import requests
-from supabase import create_client
+from supabase import create_client, Client
 import os
-from datetime import datetime
+import requests
+
+# ---------------------------
+# CONFIG
+# ---------------------------
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__)
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+# ---------------------------
+# ROUTE: Home
+# ---------------------------
+@app.route("/")
+def home():
+    return "✅ Element Proxy API Running!"
 
-
-@app.route("/api/config", methods=["GET"])
+# ---------------------------
+# ROUTE: Get Config for Element Script
+# ---------------------------
+@app.route("/api/config")
 def get_config():
     element_id = request.args.get("id")
-
     if not element_id:
-        return jsonify({"error": "Missing id"}), 400
+        return jsonify({"error": "Missing ID"}), 400
 
-    data = supabase.table("elements").select("*").eq("id", element_id).execute()
-    if not data.data:
-        return jsonify({"error": "Config not found"}), 404
+    result = supabase.table("users").select("username, webhook_url").eq("custom_id", element_id).execute()
 
-    return jsonify(data.data[0])
+    if not result.data:
+        return jsonify({"error": f"No config found for ID {element_id}"}), 404
 
+    return jsonify(result.data[0])
 
+# ---------------------------
+# ROUTE: Report from Roblox
+# ---------------------------
 @app.route("/report", methods=["POST"])
 def report():
-    body = request.json
-    element_id = body.get("id")
-    job_id = body.get("jobId")
-
-    if not element_id or not job_id:
-        return jsonify({"error": "Missing fields"}), 400
-
-    # caută config în DB
-    data = supabase.table("elements").select("*").eq("id", element_id).execute()
-    if not data.data:
-        return jsonify({"error": "Invalid ID"}), 404
-
-    config = data.data[0]
-    webhook = config["webhook"]
-
-    # update last_job_id în DB
-    supabase.table("elements").update({
-        "last_job_id": job_id,
-        "updated_at": datetime.utcnow().isoformat()
-    }).eq("id", element_id).execute()
-
-    # trimite pe webhook
-    payload = {
-        "content": f"🌐 Element Report\nID: `{element_id}`\nJobID: `{job_id}`"
-    }
     try:
-        r = requests.post(webhook, json=payload)
-        if r.status_code == 204:
-            return jsonify({"status": "ok", "to": "webhook"}), 200
-        else:
-            return jsonify({"status": "error", "webhook_response": r.text}), 500
+        data = request.get_json()
+
+        if not data or "id" not in data:
+            return jsonify({"error": "Missing ID in payload"}), 400
+
+        element_id = data["id"]
+        username = data.get("username")
+        player = data.get("player")
+        job_id = data.get("jobId")
+        place_id = data.get("placeId")
+
+        # Update in database
+        supabase.table("users").update({
+            "last_job_id": job_id,
+            "last_place_id": place_id,
+            "last_player": player
+        }).eq("custom_id", element_id).execute()
+
+        # Fetch webhook
+        result = supabase.table("users").select("webhook_url").eq("custom_id", element_id).execute()
+        webhook = result.data[0]["webhook_url"] if result.data and result.data[0].get("webhook_url") else None
+
+        # Send to webhook if exists
+        if webhook:
+            payload = {
+                "content": f"🎮 **Element Report**\n"
+                           f"👤 Player: `{player}`\n"
+                           f"🆔 JobId: `{job_id}`\n"
+                           f"📍 PlaceId: `{place_id}`\n"
+                           f"💾 Username: `{username or 'Unknown'}`"
+            }
+            try:
+                requests.post(webhook, json=payload, timeout=5)
+            except Exception as e:
+                print(f"❌ Failed to send to webhook: {e}")
+
+        return jsonify({"status": "ok", "message": "Report processed"})
+
     except Exception as e:
-        return jsonify({"status": "failed", "error": str(e)}), 500
+        return jsonify({"error": str(e)}), 500
+
+# ---------------------------
+# RUN
+# ---------------------------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
