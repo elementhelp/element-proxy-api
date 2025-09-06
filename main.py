@@ -135,20 +135,32 @@ def api_join():
 # ---------------------------
 @app.route("/report", methods=["POST"])
 def report():
-    data = request.json
-    if not data or "key" not in data or "jobId" not in data or "placeId" not in data:
-        return jsonify({"error": "invalid data"}), 400
+    try:
+        data = request.get_json()
 
-    key = data["key"]
-    job_id = data["jobId"]
-    place_id = data["placeId"]
+        key = data.get("key")
+        username = data.get("username")
+        player = data.get("player")
+        job_id = data.get("jobId")
+        place_id = data.get("placeId")
 
-    supabase.table("elements").update({
-        "last_job_id": job_id,
-        "last_place_id": place_id
-    }).eq("key", key).execute()
+        if not key:
+            return {"error": "Missing key"}, 400
 
-    return jsonify({"status": "ok"})
+        # Update user record in Supabase
+        supabase.table("elements").update({
+            "last_job_id": job_id,
+            "last_place_id": place_id,
+            "last_seen": datetime.utcnow().isoformat()
+        }).eq("key", key).execute()
+
+        print(f"[REPORT] {username} ({player}) joined {place_id} / {job_id}")
+
+        return {"status": "ok"}, 200
+
+    except Exception as e:
+        print("❌ Error in /report:", str(e))
+        return {"error": str(e)}, 500
 
 
 # ---------------------------
