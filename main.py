@@ -1,29 +1,44 @@
+from flask import Flask, request, Response, jsonify
+from supabase import create_client
 import os
-from flask import Flask, request, jsonify, Response
-from supabase import create_client, Client
-
-# ---------------------------
-# ENV VARS
-# ---------------------------
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+import json
 
 app = Flask(__name__)
 
-# ---------------------------
-# Element Loader Script
-# ---------------------------
+# ============================
+# SUPABASE SETUP
+# ============================
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ============================
+# ROUTES - CDN SCRIPTS
+# ============================
+
 @app.route("/cdn/element.luau")
-def element_loader():
-    code = '''-- Element Loader
+def element_script():
+    code = '''-- Element Loader (compatibil executori)
 -- ⚠️ Don't share this script ⚠️
 
 if not ID then
-    error("Missing ID in script!")
+    error("⚠️ Missing ID in script!")
 end
 
 local HttpService = game:GetService("HttpService")
+
+-- universal request
+local function send_request(options)
+    if http_request then
+        return http_request(options)
+    elseif request then
+        return request(options)
+    else
+        error("❌ Executorul tău nu suportă http_request sau request!")
+    end
+end
+
+-- config
 local configUrl = "https://element.up.railway.app/api/config?id=" .. ID
 local response = game:HttpGet(configUrl)
 
@@ -34,123 +49,116 @@ end)
 if success and config.webhook then
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
+
     local data = {
-        ["username"] = config.username or "Unknown",
         ["player"] = player.Name,
         ["jobId"] = game.JobId,
         ["placeId"] = game.PlaceId,
         ["key"] = config.key
     }
 
-    -- Report to backend
-    syn.request({
+    -- report la backend
+    send_request({
         Url = "https://element.up.railway.app/report",
         Method = "POST",
         Headers = {["Content-Type"] = "application/json"},
         Body = HttpService:JSONEncode(data)
     })
 
-    -- Send also to Discord webhook
-    syn.request({
+    -- trimite și pe webhook
+    send_request({
         Url = config.webhook,
         Method = "POST",
         Headers = {["Content-Type"] = "application/json"},
         Body = HttpService:JSONEncode(data)
     })
 else
-    warn("Config not found for ID: " .. ID)
+    warn("Config not found pentru ID: " .. ID)
 end
 '''
     return Response(code, mimetype="text/plain")
 
-# ---------------------------
-# Auto Joiner Script
-# ---------------------------
-@app.route("/cdn/autojoiner.luau")
+
+@app.route("/cdn/auto-joiner.luau")
 def autojoiner_script():
     code = '''-- Auto Joiner
--- ⚠️ Don't share this script ⚠️
-
-if not KEY then
-    error("Missing KEY in script!")
-end
-
 local HttpService = game:GetService("HttpService")
-local apiUrl = "https://element.up.railway.app/api/join?key=" .. KEY
-local response = game:HttpGet(apiUrl)
 
-local success, data = pcall(function()
-    return HttpService:JSONDecode(response)
-end)
+local response = game:HttpGet("https://element.up.railway.app/get_job")
+local data = HttpService:JSONDecode(response)
 
-if success and data.jobId then
-    game:GetService("TeleportService"):TeleportToPlaceInstance(data.placeId, data.jobId)
+if data and data.job_id then
+    print("[AutoJoiner] Joining to job:", data.job_id)
+    game:GetService("TeleportService"):TeleportToPlaceInstance(data.place_id, data.job_id)
 else
-    warn("No Job found for this KEY")
-end
-'''
+    warn("[AutoJoiner] No job available")
+end'''
     return Response(code, mimetype="text/plain")
 
-# ---------------------------
-# API: Get config by ID
-# ---------------------------
+# ============================
+# API ROUTES
+# ============================
+
 @app.route("/api/config")
-def api_config():
-    element_id = request.args.get("id")
-    if not element_id:
-        return jsonify({"error": "missing id"}), 400
+def get_config():
+    user_id = request.args.get("id")
+    if not user_id:
+        return jsonify({"error": "Missing id"}), 400
 
-    result = supabase.table("elements").select("username, webhook, key").eq("id", element_id).execute()
-    if not result.data:
-        return jsonify({"error": "id not found"}), 404
+    res = supabase.table("elements").select("*").eq("id", user_id).single().execute()
 
-    return jsonify(result.data[0])
+    if not res.data:
+        return jsonify({"error": "ID not found"}), 404
 
-# ---------------------------
-# API: Get Job by KEY
-# ---------------------------
-@app.route("/api/join")
-def api_join():
-    key = request.args.get("key")
-    if not key:
-        return jsonify({"error": "missing key"}), 400
+    return jsonify(res.data)
 
-    result = supabase.table("elements").select("last_job_id, last_place_id").eq("key", key).execute()
-    if not result.data:
-        return jsonify({"error": "key not found"}), 404
 
-    row = result.data[0]
-    return jsonify({
-        "placeId": row.get("last_place_id"),
-        "jobId": row.get("last_job_id")
-    })
-
-# ---------------------------
-# API: Report Job from Element
-# ---------------------------
 @app.route("/report", methods=["POST"])
 def report():
-    data = request.json
-    if not data or "key" not in data or "jobId" not in data or "placeId" not in data:
-        return jsonify({"error": "invalid data"}), 400
+    try:
+        data = request.get_json()
 
-    key = data["key"]
-    job_id = data["jobId"]
-    place_id = data["placeId"]
+        if not data:
+            return jsonify({"error": "Missing JSON body"}), 400
 
-    supabase.table("elements").update({
-        "last_job_id": job_id,
-        "last_place_id": place_id
-    }).eq("key", key).execute()
+        key = data.get("key")
+        job_id = data.get("jobId")
 
-    return jsonify({"status": "ok"})
+        if not key or not job_id:
+            return jsonify({"error": "Missing key or jobId"}), 400
 
-# ---------------------------
-# Run
-# ---------------------------
+        # update în Supabase
+        supabase.table("elements").update({
+            "last_job_id": job_id,
+            "last_place_id": data.get("placeId"),
+            "last_player": data.get("player")
+        }).eq("key", key).execute()
+
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/get_job")
+def get_job():
+    res = supabase.table("elements").select("last_job_id, last_place_id").order("updated_at", desc=True).limit(1).execute()
+
+    if res.data and len(res.data) > 0:
+        return jsonify(res.data[0])
+    else:
+        return jsonify({"error": "No job found"}), 404
+
+# ============================
+# HOME ROUTE
+# ============================
+
 @app.route("/")
 def home():
-    return "✅ Proxy running!"
+    return "✅ Element Proxy API running!"
+
+# ============================
+# MAIN
+# ============================
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3910)
+    app.run(host="0.0.0.0", port=8080)
