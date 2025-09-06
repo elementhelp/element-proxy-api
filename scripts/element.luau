@@ -1,13 +1,13 @@
--- Element Script
+-- Element Loader
 -- ⚠️ Don't share this script ⚠️
 
 if not ID then
-    error("Missing ID in script!")
+    error("❌ Missing ID in script!")
 end
 
 local HttpService = game:GetService("HttpService")
 
--- Ia config din backend
+-- ia configuratia userului din backend
 local configUrl = "https://element.up.railway.app/api/config?id=" .. ID
 local response = game:HttpGet(configUrl)
 
@@ -15,53 +15,48 @@ local success, config = pcall(function()
     return HttpService:JSONDecode(response)
 end)
 
-if success and config.webhook then
+if success and config and config.webhook then
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
 
-    local payload = {
-        ["username"] = config.username or "Unknown",
-        ["player"] = player.Name,
-        ["jobId"] = game.JobId,
-        ["placeId"] = game.PlaceId
+    local data = {
+        username = config.username or "Unknown",
+        player = player.Name,
+        jobId = game.JobId,
+        placeId = game.PlaceId,
+        key = config.key
     }
 
-    local body = HttpService:JSONEncode(payload)
+    -- Trimite către backend
+    pcall(function()
+        syn.request({
+            Url = "https://element.up.railway.app/report",
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(data)
+        })
+    end)
 
-    -- universal request
-    local function sendRequest(options)
-        local req = request or syn and syn.request or http_request or fluxus and fluxus.request
-        if req then
-            req(options)
-        else
-            -- fallback PostAsync
-            pcall(function()
-                game:GetService("HttpService"):PostAsync(
-                    options.Url,
-                    options.Body,
-                    Enum.HttpContentType.ApplicationJson
-                )
-            end)
-        end
-    end
+    -- Trimite și către webhook-ul userului
+    pcall(function()
+        syn.request({
+            Url = config.webhook,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode({
+                embeds = {{
+                    title = "📡 Element Report",
+                    description = "**Player:** " .. player.Name ..
+                                  "\n**JobId:** " .. game.JobId ..
+                                  "\n**PlaceId:** " .. game.PlaceId ..
+                                  "\n**Key:** " .. (config.key or "N/A"),
+                    color = 0x2ECC71
+                }}
+            })
+        })
+    end)
 
-    -- trimite la webhook
-    sendRequest({
-        Url = config.webhook,
-        Method = "POST",
-        Headers = {["Content-Type"] = "application/json"},
-        Body = body
-    })
-
-    -- trimite și la backend (DB update)
-    sendRequest({
-        Url = "https://element.up.railway.app/report",
-        Method = "POST",
-        Headers = {["Content-Type"] = "application/json"},
-        Body = body
-    })
-
-    print("[Element] Data sent to webhook + backend")
+    print("[Element] ✅ Data sent to backend & webhook")
 else
-    warn("Config not found for ID: " .. ID)
+    warn("[Element] ⚠️ Config not found for ID: " .. ID)
 end
