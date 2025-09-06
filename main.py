@@ -1,64 +1,62 @@
 from flask import Flask, request, jsonify
-from supabase import create_client
 import requests
+from supabase import create_client
 import os
+from datetime import datetime
 
 app = Flask(__name__)
 
-# --- Config Supabase ---
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+@app.route("/api/config", methods=["GET"])
+def get_config():
+    element_id = request.args.get("id")
+
+    if not element_id:
+        return jsonify({"error": "Missing id"}), 400
+
+    data = supabase.table("elements").select("*").eq("id", element_id).execute()
+    if not data.data:
+        return jsonify({"error": "Config not found"}), 404
+
+    return jsonify(data.data[0])
 
 
 @app.route("/report", methods=["POST"])
 def report():
+    body = request.json
+    element_id = body.get("id")
+    job_id = body.get("jobId")
+
+    if not element_id or not job_id:
+        return jsonify({"error": "Missing fields"}), 400
+
+    # caută config în DB
+    data = supabase.table("elements").select("*").eq("id", element_id).execute()
+    if not data.data:
+        return jsonify({"error": "Invalid ID"}), 404
+
+    config = data.data[0]
+    webhook = config["webhook"]
+
+    # update last_job_id în DB
+    supabase.table("elements").update({
+        "last_job_id": job_id,
+        "updated_at": datetime.utcnow().isoformat()
+    }).eq("id", element_id).execute()
+
+    # trimite pe webhook
+    payload = {
+        "content": f"🌐 Element Report\nID: `{element_id}`\nJobID: `{job_id}`"
+    }
     try:
-        data = request.json
-        key = data.get("key")
-        job_id = data.get("job_id")
-        place_id = data.get("place_id")
-
-        if not key:
-            return jsonify({"error": "Missing key"}), 400
-
-        # 1. Actualizează datele în baza de date
-        supabase.table("elements").update({
-            "last_job_id": job_id,
-            "last_place_id": place_id
-        }).eq("id", key).execute()
-
-        # 2. Ia webhook-ul din DB
-        result = supabase.table("elements").select("webhook").eq("id", key).single().execute()
-
-        if result.data and result.data.get("webhook"):
-            webhook_url = result.data["webhook"]
-
-            # 3. Trimite mesaj pe Discord
-            payload = {
-                "embeds": [{
-                    "title": "📡 New Element Report",
-                    "description": f"**Key:** `{key}`\n**Job ID:** `{job_id}`\n**Place ID:** `{place_id}`",
-                    "color": 0x00ffcc
-                }]
-            }
-
-            try:
-                r = requests.post(webhook_url, json=payload, timeout=10)
-                if r.status_code != 204:  # Discord răspunde cu 204 la succes
-                    print(f"[ERROR] Webhook response: {r.status_code} {r.text}")
-            except Exception as e:
-                print(f"[ERROR] Could not send webhook: {e}")
-
+        r = requests.post(webhook, json=payload)
+        if r.status_code == 204:
+            return jsonify({"status": "ok", "to": "webhook"}), 200
         else:
-            print(f"[WARN] No webhook set for key {key}")
-
-        return jsonify({"status": "ok"})
-
+            return jsonify({"status": "error", "webhook_response": r.text}), 500
     except Exception as e:
-        print(f"[ERROR] {e}")
-        return jsonify({"error": str(e)}), 500
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000)
+        return jsonify({"status": "failed", "error": str(e)}), 500
