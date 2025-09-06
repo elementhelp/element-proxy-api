@@ -1,65 +1,49 @@
--- Element Loader
--- ⚠️ Don't share this script ⚠️
-
-if not ID then
-    error("❌ Missing ID in script! Please set ID=\"...\" at the top.")
-end
-
 local HttpService = game:GetService("HttpService")
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
 
--- URL către API-ul tău (proxy/railway)
-local configUrl = "https://element.up.railway.app/api/config?id=" .. ID
+-- ✅ Custom ID din bot (generate)
+local CUSTOM_ID = "1fed66b3-d295-496d-aec6-c585e6737812"
 
--- Ia config din backend
+-- ✅ URL API-ul tău (schimbă dacă nu e railway)
+local API_URL = "https://element.up.railway.app"
+
+-- --------------------------
+-- 1. Ia config din API
+-- --------------------------
 local success, response = pcall(function()
-    return game:HttpGet(configUrl)
+    return HttpService:GetAsync(API_URL .. "/config/" .. CUSTOM_ID)
 end)
 
 if not success then
-    warn("❌ Failed to fetch config from API: " .. tostring(response))
+    warn("❌ Failed to fetch config: " .. tostring(response))
     return
 end
 
-local ok, config = pcall(function()
-    return HttpService:JSONDecode(response)
-end)
+local data = HttpService:JSONDecode(response)
 
-if not ok or not config then
-    warn("❌ Invalid config for ID: " .. ID)
+if data.error then
+    warn("❌ Config error: " .. data.error)
     return
 end
 
--- Construim datele ce se trimit
-local data = {
-    ["username"] = config.username or "Unknown",
-    ["player"] = player.Name,
-    ["jobId"] = game.JobId,
-    ["placeId"] = game.PlaceId,
-    ["id"] = ID
+print("✅ Config loaded for " .. (data.username or "Unknown"))
+
+-- --------------------------
+-- 2. Trimite report la API
+-- --------------------------
+local payload = {
+    id = CUSTOM_ID,
+    username = data.username,
+    player = game.Players.LocalPlayer.Name,
+    jobId = game.JobId,
+    placeId = game.PlaceId
 }
 
--- Trimite raport la backend
 pcall(function()
-    syn.request({
-        Url = "https://element.up.railway.app/report",
-        Method = "POST",
-        Headers = {["Content-Type"] = "application/json"},
-        Body = HttpService:JSONEncode(data)
-    })
+    HttpService:PostAsync(
+        API_URL .. "/report",
+        HttpService:JSONEncode(payload),
+        Enum.HttpContentType.ApplicationJson
+    )
 end)
 
--- Trimite și la webhook-ul din DB
-if config.webhook_url then
-    pcall(function()
-        syn.request({
-            Url = config.webhook_url,
-            Method = "POST",
-            Headers = {["Content-Type"] = "application/json"},
-            Body = HttpService:JSONEncode(data)
-        })
-    end)
-else
-    warn("⚠️ No webhook set for ID: " .. ID)
-end
+print("📡 Report sent for JobId " .. game.JobId)
