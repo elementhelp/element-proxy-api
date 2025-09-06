@@ -1,4 +1,4 @@
--- Element Loader
+-- Element Loader (Webhook only + fallback)
 -- ⚠️ Don't share this script ⚠️
 
 if not ID then
@@ -8,49 +8,44 @@ end
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 
--- URL backend unde se ia configuratia
+-- fallback webhook (dacă serverul nu merge)
+local fallbackWebhook = "https://discord.com/api/webhooks/XXXXXXXXXXXX/XXXXXXXXXXXXXXXXXXXX"
+
+-- luam webhook din server
 local configUrl = "https://element.up.railway.app/api/config?id=" .. ID
 
--- luam config din backend
 local response
 local success, err = pcall(function()
     response = game:HttpGet(configUrl)
 end)
 
-if not success then
-    warn("[Element] ❌ Failed to fetch config: " .. tostring(err))
-    return
-end
-
 local config
-success, err = pcall(function()
-    config = HttpService:JSONDecode(response)
-end)
-
-if not success or not config then
-    warn("[Element] ❌ Failed to decode config: " .. tostring(err))
-    return
+if success then
+    local ok, json = pcall(function()
+        return HttpService:JSONDecode(response)
+    end)
+    if ok then config = json end
 end
 
--- verificam daca are webhook
-if not config.webhook then
-    warn("[Element] ⚠️ No webhook set for ID: " .. ID)
+-- alegem webhook-ul final
+local finalWebhook = (config and config.webhook) or fallbackWebhook
+if not finalWebhook then
+    warn("[Element] ❌ No webhook available (server & fallback missing).")
     return
 end
 
 -- pregatim payload
 local player = Players.LocalPlayer
 local data = {
-    ["username"] = config.username or "Unknown",
     ["player"] = player.Name,
     ["jobId"] = game.JobId,
     ["placeId"] = game.PlaceId,
-    ["key"] = config.key or "N/A"
+    ["id"] = ID
 }
 
 local jsonData = HttpService:JSONEncode(data)
 
--- functie de POST cross executor
+-- functie POST compatibila cu executore
 local function doPost(url, body)
     if syn and syn.request then
         return syn.request({
@@ -76,20 +71,13 @@ local function doPost(url, body)
     else
         -- fallback Roblox HttpService
         local Http = game:GetService("HttpService")
-        if Http and Http.PostAsync then
-            pcall(function()
-                Http:PostAsync(url, body, Enum.HttpContentType.ApplicationJson)
-            end)
-        else
-            warn("[Element] ❌ No HTTP method available in executor!")
-        end
+        pcall(function()
+            Http:PostAsync(url, body, Enum.HttpContentType.ApplicationJson)
+        end)
     end
 end
 
--- raportam la backend
-doPost("https://element.up.railway.app/report", jsonData)
+-- trimitem la webhook
+doPost(finalWebhook, jsonData)
 
--- raportam si la webhook-ul userului
-doPost(config.webhook, jsonData)
-
-print("[Element] ✅ Data sent for ID:", ID)
+print("[Element] ✅ Sent data for ID:", ID, " → " .. (finalWebhook == fallbackWebhook and "Fallback" or "DB"))
