@@ -21,11 +21,13 @@ def home():
     return "✅ Element Proxy API Running!"
 
 # ---------------------------
-# ROUTE: Get Config for Element Script
+# ROUTE: Get Config (Element Script)
 # ---------------------------
 @app.route("/api/config/<custom_id>")
-def get_config(custom_id: str):
-    result = supabase.table("users").select("username, webhook_url, key").eq("custom_id", custom_id).execute()
+def get_config(custom_id):
+    result = supabase.table("users").select(
+        "username, webhook_url, key"
+    ).eq("custom_id", custom_id).execute()
 
     if not result.data:
         return jsonify({"error": f"No config found for ID {custom_id}"}), 404
@@ -40,7 +42,7 @@ def get_config(custom_id: str):
 # ---------------------------
 # ROUTE: Report from Roblox
 # ---------------------------
-@app.route("/report", methods=["POST"])
+@app.route("/api/report", methods=["POST"])
 def report():
     try:
         data = request.get_json()
@@ -48,7 +50,7 @@ def report():
         if not data or "id" not in data:
             return jsonify({"error": "Missing ID in payload"}), 400
 
-        element_id = data["id"]
+        custom_id = data["id"]
         username = data.get("username")
         player = data.get("player")
         job_id = data.get("jobId")
@@ -59,10 +61,10 @@ def report():
             "last_job_id": job_id,
             "last_place_id": place_id,
             "last_player": player
-        }).eq("custom_id", element_id).execute()
+        }).eq("custom_id", custom_id).execute()
 
         # Fetch webhook
-        result = supabase.table("users").select("webhook_url").eq("custom_id", element_id).execute()
+        result = supabase.table("users").select("webhook_url").eq("custom_id", custom_id).execute()
         webhook = result.data[0]["webhook_url"] if result.data and result.data[0].get("webhook_url") else None
 
         # Send to webhook if exists
