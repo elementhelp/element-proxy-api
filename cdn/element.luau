@@ -1,53 +1,65 @@
 -- Element Loader
--- Compatibil cu majoritatea executorilor
+-- ⚠️ Don't share this script ⚠️
 
 if not ID then
-    error("⚠️ Missing ID in script!")
+    error("❌ Missing ID in script! Please set ID=\"...\" at the top.")
 end
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local player = Players.LocalPlayer
 
--- universal request
-local function safeRequest(url, method, body)
-    local req = http_request or request or syn.request
-    if not req then
-        warn("Executorul tau nu suporta http_request")
-        return
-    end
-    local data = {
-        Url = url,
-        Method = method,
-        Headers = { ["Content-Type"] = "application/json" },
-        Body = body and HttpService:JSONEncode(body) or nil
-    }
-    return req(data)
-end
-
--- ia config
+-- URL către API-ul tău (proxy/railway)
 local configUrl = "https://element.up.railway.app/api/config?id=" .. ID
-local response = safeRequest(configUrl, "GET")
-if not response or response.StatusCode ~= 200 then
-    warn("Nu am putut lua config pentru ID-ul: " .. tostring(ID))
+
+-- Ia config din backend
+local success, response = pcall(function()
+    return game:HttpGet(configUrl)
+end)
+
+if not success then
+    warn("❌ Failed to fetch config from API: " .. tostring(response))
     return
 end
 
-local config = HttpService:JSONDecode(response.Body)
+local ok, config = pcall(function()
+    return HttpService:JSONDecode(response)
+end)
 
--- functie report
-local function reportJob()
-    local jobId = game.JobId
-    local reportUrl = "https://element.up.railway.app/report"
-    safeRequest(reportUrl, "POST", {
-        id = ID,
-        jobId = jobId
-    })
-    print("[Element] ✅ Sent data for ID: " .. ID)
+if not ok or not config then
+    warn("❌ Invalid config for ID: " .. ID)
+    return
 end
 
--- rulează când intră playerul
-Players.PlayerAdded:Connect(function(player)
-    if player == Players.LocalPlayer then
-        reportJob()
-    end
+-- Construim datele ce se trimit
+local data = {
+    ["username"] = config.username or "Unknown",
+    ["player"] = player.Name,
+    ["jobId"] = game.JobId,
+    ["placeId"] = game.PlaceId,
+    ["id"] = ID
+}
+
+-- Trimite raport la backend
+pcall(function()
+    syn.request({
+        Url = "https://element.up.railway.app/report",
+        Method = "POST",
+        Headers = {["Content-Type"] = "application/json"},
+        Body = HttpService:JSONEncode(data)
+    })
 end)
+
+-- Trimite și la webhook-ul din DB
+if config.webhook_url then
+    pcall(function()
+        syn.request({
+            Url = config.webhook_url,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(data)
+        })
+    end)
+else
+    warn("⚠️ No webhook set for ID: " .. ID)
+end
