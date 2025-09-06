@@ -1,0 +1,18 @@
+-- Auto Joiner (Template)
+local KEY = "{KEY}"
+local Http = game:GetService("HttpService")
+
+local success, data = pcall(function()
+    return game:HttpGet("https://element.up.railway.app/get_job?key="..KEY)
+end)
+
+if success then
+    local parsed = Http:JSONDecode(data)
+    if parsed.jobId and parsed.placeId then
+        game:GetService("TeleportService"):TeleportToPlaceInstance(parsed.placeId, parsed.jobId)
+    else
+        warn("[AutoJoiner] No job found for your KEY")
+    end
+else
+    warn("[AutoJoiner] Failed to reach API")
+end
