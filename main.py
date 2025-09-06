@@ -21,22 +21,20 @@ def home():
     return "✅ Element Proxy API Running!"
 
 # ---------------------------
-# ROUTE: Get Config (pentru Element Script)
+# ROUTE: Get Config for Element Script
 # ---------------------------
-@app.route("/config/<custom_id>", methods=["GET"])
-def get_config(custom_id):
-    user = supabase.table("users").select("*").eq("custom_id", custom_id).execute()
-    if not user.data:
-        return jsonify({"error": "Not found"}), 404
+@app.route("/api/config/<custom_id>")
+def get_config(custom_id: str):
+    result = supabase.table("users").select("username, webhook_url, key").eq("custom_id", custom_id).execute()
+
+    if not result.data:
+        return jsonify({"error": f"No config found for ID {custom_id}"}), 404
 
     return jsonify({
         "id": custom_id,
-        "username": user.data[0].get("username"),
-        "webhook_url": user.data[0].get("webhook_url"),
-        "key": user.data[0].get("key"),
-        "last_job_id": user.data[0].get("last_job_id"),
-        "last_place_id": user.data[0].get("last_place_id"),
-        "last_player": user.data[0].get("last_player"),
+        "username": result.data[0].get("username"),
+        "webhook_url": result.data[0].get("webhook_url"),
+        "key": result.data[0].get("key")
     })
 
 # ---------------------------
